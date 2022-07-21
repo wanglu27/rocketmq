@@ -17,24 +17,70 @@
 package org.apache.rocketmq.remoting.netty;
 
 public class NettyServerConfig implements Cloneable {
+
+    /**
+     * 监听的端口号
+     */
     private int listenPort = 8888;
+
+    /**
+     * 业务线程池线程数
+     */
     private int serverWorkerThreads = 8;
+
+    /**
+     * 根据该值 创建 remotingserver 内部的一个 publicExecutor
+     */
     private int serverCallbackExecutorThreads = 0;
+
+    /**
+     * Netty 中 Worker 组内 EventLoop 的个数
+     * 就是第二个 NioEventLoopGroup
+     * group(new NioEventLoopGroup(), new NioEventLoopGroup(3))
+     */
     private int serverSelectorThreads = 3;
+
+    /**
+     * 服务端 单向访问 客户端 的并发度 信号量
+     */
     private int serverOnewaySemaphoreValue = 256;
+
+    /**
+     * 服务端 异步访问 客户端 的并发限制 信号量
+     */
     private int serverAsyncSemaphoreValue = 64;
+
+    /**
+     * Channel 最大的空闲存活时间
+     * 默认 2分钟
+     */
     private int serverChannelMaxIdleTimeSeconds = 120;
 
+    /**
+     * 写缓冲区大小 默认65535
+     */
     private int serverSocketSndBufSize = NettySystemConfig.socketSndbufSize;
+
+    /**
+     * 接收缓冲区大小 默认65535
+     */
     private int serverSocketRcvBufSize = NettySystemConfig.socketRcvbufSize;
+
+    /**
+     * 默认开启 netty 内存池
+     * 也就是 netty 的池化机制
+     */
     private boolean serverPooledByteBufAllocatorEnable = true;
 
     /**
      * make make install
-     *
-     *
+     * <p>
+     * <p>
      * ../glibc-2.10.1/configure \ --prefix=/usr \ --with-headers=/usr/include \
      * --host=x86_64-linux-gnu \ --build=x86_64-pc-linux-gnu \ --without-gd
+     */
+    /**
+     * linux 默认开启 epoll
      */
     private boolean useEpollNativeSelector = false;
 

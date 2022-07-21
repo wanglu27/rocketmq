@@ -48,12 +48,16 @@ public class NamesrvStartup {
     private static CommandLine commandLine = null;
 
     public static void main(String[] args) {
+        // 如果有启动参数 比如 -c 等等
+        // 这些参数会封装在 args
         main0(args);
     }
 
     public static NamesrvController main0(String[] args) {
 
         try {
+            // 创建NameSrv控制器 里边包含 初始化、启动、关闭 等逻辑
+            // 读取配置信息 初始化controller
             NamesrvController controller = createNamesrvController(args);
             start(controller);
             String tip = "The Name Server boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
@@ -73,14 +77,22 @@ public class NamesrvStartup {
         //PackageConflictDetect.detectFastjson();
 
         Options options = ServerUtil.buildCommandlineOptions(new Options());
+        // args 是启动时传入的参数
+        // 通过 CommandLine 来管理 args
         commandLine = ServerUtil.parseCmdLine("mqnamesrv", args, buildCommandlineOptions(options), new PosixParser());
         if (null == commandLine) {
             System.exit(-1);
             return null;
         }
 
+        // NameSrv的配置信息
+        // 获取读取环境变量 ROCKET_HOME 读取一些文件等等
         final NamesrvConfig namesrvConfig = new NamesrvConfig();
+
+        // NettyServer的配置信息
         final NettyServerConfig nettyServerConfig = new NettyServerConfig();
+        // 初始化的时候设置的 8888
+        // 这里修改成 9876
         nettyServerConfig.setListenPort(9876);
         if (commandLine.hasOption('c')) {
             String file = commandLine.getOptionValue('c');
