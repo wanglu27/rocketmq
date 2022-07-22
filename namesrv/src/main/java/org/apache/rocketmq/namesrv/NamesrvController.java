@@ -46,15 +46,41 @@ public class NamesrvController {
 
     private final NettyServerConfig nettyServerConfig;
 
+    /**
+     * 定时任务调度线程池
+     * 1. 检查broker存活状态
+     * 2. 打印配置
+     */
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
         "NSScheduledThread"));
+
+    /**
+     * kv配置
+     */
     private final KVConfigManager kvConfigManager;
+    /**
+     * 路由信息
+     * 也就是我们说的namesrv里的元数据
+     */
     private final RouteInfoManager routeInfoManager;
 
+    /**
+     * 网络层封装的对象
+     */
     private RemotingServer remotingServer;
 
+    /**
+     * ChannelEventListener
+     * 用于监听 Channel 的状态 connection close 等等
+     * 当 Channel 状态发生改变 发起对应事件时 由他处理
+     */
     private BrokerHousekeepingService brokerHousekeepingService;
 
+    /**
+     * 业务线程池
+     * netty 会将接收到的消息转换为 RemotingCommand 就不管了
+     * 然后 remotingExecutor 处理这个消息
+     */
     private ExecutorService remotingExecutor;
 
     private Configuration configuration;
@@ -75,15 +101,25 @@ public class NamesrvController {
 
     public boolean initialize() {
 
+        // 加载本地kv对
+        // namesrvController.getNamesrvConfig().getKvConfigPath()
         this.kvConfigManager.load();
 
+        // 创建网络服务器对象
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
 
+        // 创建业务线程池
+        // 默认处理 RemoteCommand 的线程数为8
         this.remotingExecutor =
             Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
 
+        // 注册请求处理器 DefaultRequestProcessor
         this.registerProcessor();
 
+        // 调度线程池 scanNotActiveBroker 这里扫描存活broker
+        // 5秒后执行 每10秒执行一次
+        // 从元数据中获取 brokerLiveTable 如果超过2分钟没接收到心跳
+        // 就移除从table里移除broker 关闭Channel
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -92,6 +128,8 @@ public class NamesrvController {
             }
         }, 5, 10, TimeUnit.SECONDS);
 
+        // 调度线程池 kvConfigManager.printAllPeriodically()
+        // 定时打印kv配置
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -142,12 +180,15 @@ public class NamesrvController {
     }
 
     private void registerProcessor() {
+        // clusterTest 默认时 false
+        // 所以会注册下边哪个处理器
         if (namesrvConfig.isClusterTest()) {
 
             this.remotingServer.registerDefaultProcessor(new ClusterTestRequestProcessor(this, namesrvConfig.getProductEnvName()),
                 this.remotingExecutor);
         } else {
-
+            // 注册这个请求处理器 DefaultRequestProcessor
+            // 通过这个参数可以猜想 netty 解析出 RemoteCommand 给这个处理器 进行一些处理 扔到 remotingExecutor 里
             this.remotingServer.registerDefaultProcessor(new DefaultRequestProcessor(this), this.remotingExecutor);
         }
     }

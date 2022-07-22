@@ -427,12 +427,18 @@ public class RouteInfoManager {
     }
 
     public void scanNotActiveBroker() {
+        // 元数据里拿到 brokerLiveTable
         Iterator<Entry<String, BrokerLiveInfo>> it = this.brokerLiveTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<String, BrokerLiveInfo> next = it.next();
+            // 获取最后更新事件
             long last = next.getValue().getLastUpdateTimestamp();
+            // BROKER_CHANNEL_EXPIRED_TIME 默认2分钟
+            // 超过2分钟没收到心跳就移除
             if ((last + BROKER_CHANNEL_EXPIRED_TIME) < System.currentTimeMillis()) {
+                // 关闭channel
                 RemotingUtil.closeChannel(next.getValue().getChannel());
+                // 移除
                 it.remove();
                 log.warn("The broker channel expired, {} {}ms", next.getKey(), BROKER_CHANNEL_EXPIRED_TIME);
                 this.onChannelDestroy(next.getKey(), next.getValue().getChannel());

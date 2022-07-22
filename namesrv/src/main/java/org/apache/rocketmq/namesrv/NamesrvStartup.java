@@ -59,6 +59,7 @@ public class NamesrvStartup {
             // 创建NameSrv控制器 里边包含 初始化、启动、关闭 等逻辑
             // 读取配置信息 初始化controller
             NamesrvController controller = createNamesrvController(args);
+            // 从这里启动 namesrv
             start(controller);
             String tip = "The Name Server boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
             log.info(tip);
@@ -95,11 +96,15 @@ public class NamesrvStartup {
         // 这里修改成 9876
         nettyServerConfig.setListenPort(9876);
         if (commandLine.hasOption('c')) {
+            // 启动时配置的环境变量 -c ....
+            // 读取这些配置变量 一般是配置文件
             String file = commandLine.getOptionValue('c');
             if (file != null) {
                 InputStream in = new BufferedInputStream(new FileInputStream(file));
                 properties = new Properties();
                 properties.load(in);
+                // 如果有配置文件 那么就复写之前初始化的配置类
+                // namesrvConfig  nettyServerConfig
                 MixAll.properties2Object(properties, namesrvConfig);
                 MixAll.properties2Object(properties, nettyServerConfig);
 
@@ -116,7 +121,8 @@ public class NamesrvStartup {
             MixAll.printObjectProperties(console, nettyServerConfig);
             System.exit(0);
         }
-
+        // 上边说了 commandLine 就是启动时输入的启动项 java -jar 那一堆
+        // 将 commandLine 里的启动项写入到 namesrvConfig 里去
         MixAll.properties2Object(ServerUtil.commandLine2Properties(commandLine), namesrvConfig);
 
         if (null == namesrvConfig.getRocketmqHome()) {
@@ -124,6 +130,8 @@ public class NamesrvStartup {
             System.exit(-2);
         }
 
+        // 这里什么LoggerFactory 什么logback_namesrv.xml什么的
+        // 很显然这一大堆都是配置日志相关的东西
         LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
         JoranConfigurator configurator = new JoranConfigurator();
         configurator.setContext(lc);
@@ -135,6 +143,8 @@ public class NamesrvStartup {
         MixAll.printObjectProperties(log, namesrvConfig);
         MixAll.printObjectProperties(log, nettyServerConfig);
 
+        // 实例化控制器
+        // 传入 namesrvConfig nettyServerConfig
         final NamesrvController controller = new NamesrvController(namesrvConfig, nettyServerConfig);
 
         // remember all configs to prevent discard
@@ -149,12 +159,17 @@ public class NamesrvStartup {
             throw new IllegalArgumentException("NamesrvController is null");
         }
 
+        // 在这里进行初始化
+        // 初始化请求处理器啊等等
+        // 初始化一些调度线程池啊
         boolean initResult = controller.initialize();
         if (!initResult) {
             controller.shutdown();
             System.exit(-3);
         }
 
+        // JVM HOOk
+        // 设置平滑关闭的逻辑
         Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, new Callable<Void>() {
             @Override
             public Void call() throws Exception {
@@ -163,6 +178,8 @@ public class NamesrvStartup {
             }
         }));
 
+        // 启动remotingServer
+        // 这肯定是启动什么服务器
         controller.start();
 
         return controller;
