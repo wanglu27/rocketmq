@@ -178,8 +178,8 @@ public class NamesrvStartup {
             }
         }));
 
-        // 启动remotingServer
-        // 这肯定是启动什么服务器
+        // 真正启动namesrv
+        // 基于netty ServerBootServer 实现的服务器
         controller.start();
 
         return controller;

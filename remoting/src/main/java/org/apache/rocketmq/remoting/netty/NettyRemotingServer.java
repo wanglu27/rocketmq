@@ -70,7 +70,18 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
     private final EventLoopGroup eventLoopGroupBoss;
     private final NettyServerConfig nettyServerConfig;
 
+    /**
+     * 公共线程池
+     * 注册处理器时，未指定线程池，就是用这个
+     */
     private final ExecutorService publicExecutor;
+
+    /**
+     * Channel事件监听器
+     * HouseKeepingService 两个实现类
+     * namesrv 使用 BrokerHouseKeepingService
+     * broker 使用 ClientHouseKeepingService
+     */
     private final ChannelEventListener channelEventListener;
 
     private final Timer timer = new Timer("ServerHouseKeepingService", true);
@@ -95,6 +106,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
     public NettyRemotingServer(final NettyServerConfig nettyServerConfig,
         final ChannelEventListener channelEventListener) {
+        // namesrv发起请求的限制并发信号量
         super(nettyServerConfig.getServerOnewaySemaphoreValue(), nettyServerConfig.getServerAsyncSemaphoreValue());
         this.serverBootstrap = new ServerBootstrap();
         this.nettyServerConfig = nettyServerConfig;
@@ -114,6 +126,8 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
             }
         });
 
+        // 根据是否使用 epoll
+        // 来创建对应的 eventLoopGroup
         if (useEpoll()) {
             this.eventLoopGroupBoss = new EpollEventLoopGroup(1, new ThreadFactory() {
                 private AtomicInteger threadIndex = new AtomicInteger(0);
@@ -193,6 +207,8 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                 }
             });
 
+        // 初始化eventLoop可以共享使用的handler
+        // @ChannelHandler.Sharable
         prepareSharableHandlers();
 
         ServerBootstrap childHandler =
@@ -232,10 +248,19 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
             throw new RuntimeException("this.serverBootstrap.bind().sync() InterruptedException", e1);
         }
 
+        // 如果设置了 channel 事件监听器
+        // 就启动处理 eventList 的线程
         if (this.channelEventListener != null) {
+            // 这里启动了一个处理nettyEvent的线程
+            // 从 eventList 中不断的获取事件来处理
+            // 也就是说在worker组获取到事件后直接就扔给 eventList 了
+            // 不会让 eventLoop 因为实际的事件处理而阻塞
             this.nettyEventExecutor.start();
         }
 
+        // 定时任务 扫描ResponseTable
+        // responseTable 缓存的是 namesrv 作为请求方去请求 client 等待接收到的 client 的 response
+        // 这里肯定是一定时间内 client 没有给响应 就把对应的 responseFuture 给干掉
         this.timer.scheduleAtFixedRate(new TimerTask() {
 
             @Override

@@ -194,6 +194,8 @@ public class NamesrvController {
     }
 
     public void start() throws Exception {
+        // rocketmq 基于 netty 实现的服务器
+        // ServetBootStrap 启动
         this.remotingServer.start();
 
         if (this.fileWatchService != null) {
