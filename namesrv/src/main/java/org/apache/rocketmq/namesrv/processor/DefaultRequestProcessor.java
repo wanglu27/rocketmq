@@ -93,6 +93,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
                 if (brokerVersion.ordinal() >= MQVersion.Version.V3_0_11.ordinal()) {
                     return this.registerBrokerWithFilterServer(ctx, request);
                 } else {
+                    // namesrv 注册 broker
                     return this.registerBroker(ctx, request);
                 }
             case RequestCode.UNREGISTER_BROKER:
@@ -277,19 +278,30 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
 
     public RemotingCommand registerBroker(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
+        // 创建一个 registerBrokerResponseHeader 实例对象
+        // 一个初始化的实例对象 后边还会修改
         final RemotingCommand response = RemotingCommand.createResponseCommand(RegisterBrokerResponseHeader.class);
+
         final RegisterBrokerResponseHeader responseHeader = (RegisterBrokerResponseHeader) response.readCustomHeader();
+        // 解码 反射 获取到一个 RegisterBrokerRequestHeader 实例对象
+        // 这里就是请求里的数据了
         final RegisterBrokerRequestHeader requestHeader =
             (RegisterBrokerRequestHeader) request.decodeCommandCustomHeader(RegisterBrokerRequestHeader.class);
 
+        // 校验 crc32
+        // 类似于检验md5 判断body在传输过程中是否被修改
         if (!checksum(ctx, request, requestHeader)) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("crc32 not match");
             return response;
         }
 
+
         TopicConfigSerializeWrapper topicConfigWrapper;
         if (request.getBody() != null) {
+            // 将 body 解码成 TopicConfigSerializeWrapper
+            // 封装了 TopicConfig 记录了 这个broker 有的一些 topic 的信息
+            // 比如 topic名称 读写队列等
             topicConfigWrapper = TopicConfigSerializeWrapper.decode(request.getBody(), TopicConfigSerializeWrapper.class);
         } else {
             topicConfigWrapper = new TopicConfigSerializeWrapper();
@@ -297,18 +309,21 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             topicConfigWrapper.getDataVersion().setTimestamp(0);
         }
 
+        // 将这个broker注册进 元数据 RouteInfoManager
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
-            requestHeader.getClusterName(),
-            requestHeader.getBrokerAddr(),
-            requestHeader.getBrokerName(),
-            requestHeader.getBrokerId(),
-            requestHeader.getHaServerAddr(),
-            topicConfigWrapper,
-            null,
-            ctx.channel()
+            requestHeader.getClusterName(), // 集群名称
+            requestHeader.getBrokerAddr(), // broker地址
+            requestHeader.getBrokerName(), // broker名称
+            requestHeader.getBrokerId(), // brokerid 需要注意如果 brokerid = 0 那么就是master节点
+            requestHeader.getHaServerAddr(), // ha节点ip地址
+            topicConfigWrapper, // broker的topic信息
+            null, // 过滤服务器列表
+            ctx.channel() // namesrv 和 broker 连接的 Channel
         );
 
         responseHeader.setHaServerAddr(result.getHaServerAddr());
+        // 响应头里写入节点对应的master的地址
+        // 因为slave节点也需要来namesrv进行注册
         responseHeader.setMasterAddr(result.getMasterAddr());
 
         byte[] jsonValue = this.namesrvController.getKvConfigManager().getKVListByNamespace(NamesrvUtil.NAMESPACE_ORDER_TOPIC_CONFIG);
@@ -321,9 +336,11 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
     public RemotingCommand unregisterBroker(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
+        // 请求下线的broker的相关信息
         final UnRegisterBrokerRequestHeader requestHeader =
             (UnRegisterBrokerRequestHeader) request.decodeCommandCustomHeader(UnRegisterBrokerRequestHeader.class);
 
+        // 开始下线
         this.namesrvController.getRouteInfoManager().unregisterBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),

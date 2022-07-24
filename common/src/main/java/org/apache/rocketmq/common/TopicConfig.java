@@ -22,8 +22,18 @@ public class TopicConfig {
     private static final String SEPARATOR = " ";
     public static int defaultReadQueueNums = 16;
     public static int defaultWriteQueueNums = 16;
+
+    /**
+     * 主题名称
+     */
     private String topicName;
+    /**
+     * 读队列
+     */
     private int readQueueNums = defaultReadQueueNums;
+    /**
+     * 写队列
+     */
     private int writeQueueNums = defaultWriteQueueNums;
     private int perm = PermName.PERM_READ | PermName.PERM_WRITE;
     private TopicFilterType topicFilterType = TopicFilterType.SINGLE_TAG;

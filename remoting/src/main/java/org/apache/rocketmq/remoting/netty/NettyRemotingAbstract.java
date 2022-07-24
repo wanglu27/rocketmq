@@ -155,9 +155,11 @@ public abstract class NettyRemotingAbstract {
         if (cmd != null) {
             switch (cmd.getType()) {
                 case REQUEST_COMMAND:
+                    // 对client向自己发送的请求的处理
                     processRequestCommand(ctx, cmd);
                     break;
                 case RESPONSE_COMMAND:
+                    // 对自己之前向client发送请求，client响应的处理
                     processResponseCommand(ctx, cmd);
                     break;
                 default:
@@ -190,7 +192,9 @@ public abstract class NettyRemotingAbstract {
      * @param cmd request command.
      */
     public void processRequestCommand(final ChannelHandlerContext ctx, final RemotingCommand cmd) {
+        // 根据 code 拿到对应的 pair
         final Pair<NettyRequestProcessor, ExecutorService> matched = this.processorTable.get(cmd.getCode());
+        // 如果对应的 pair 没有 默认使用 defaultRequestProcess
         final Pair<NettyRequestProcessor, ExecutorService> pair = null == matched ? this.defaultRequestProcessor : matched;
         final int opaque = cmd.getOpaque();
 
@@ -202,8 +206,13 @@ public abstract class NettyRemotingAbstract {
                         doBeforeRpcHooks(RemotingHelper.parseChannelRemoteAddr(ctx.channel()), cmd);
                         final RemotingResponseCallback callback = new RemotingResponseCallback() {
                             @Override
+                            // callback 方法传入的这个response
+                            // 包含了注册后的结果 master节点的地址等等
                             public void callback(RemotingCommand response) {
                                 doAfterRpcHooks(RemotingHelper.parseChannelRemoteAddr(ctx.channel()), cmd, response);
+
+                                // 如果请求是单向的
+                                // 也就是需要请求结果的
                                 if (!cmd.isOnewayRPC()) {
                                     if (response != null) {
                                         response.setOpaque(opaque);
@@ -222,6 +231,9 @@ public abstract class NettyRemotingAbstract {
                         };
                         if (pair.getObject1() instanceof AsyncNettyRequestProcessor) {
                             AsyncNettyRequestProcessor processor = (AsyncNettyRequestProcessor)pair.getObject1();
+                            // AsyncNettyRequestProcessor 这个虽然是异步
+                            // 但是实际的默认实现还是同步的
+                            // 但是是个抽象类 可能子类实现会覆盖掉
                             processor.asyncProcessRequest(ctx, cmd, callback);
                         } else {
                             NettyRequestProcessor processor = pair.getObject1();
@@ -252,6 +264,9 @@ public abstract class NettyRemotingAbstract {
 
             try {
                 final RequestTask requestTask = new RequestTask(run, ctx.channel(), cmd);
+                // 封装好的 requestTask 任务
+                // 扔到处理器对应的线程池里去执行
+                // 相当于 i/o 线程 到这里其实就结束了
                 pair.getObject2().submit(requestTask);
             } catch (RejectedExecutionException e) {
                 if ((System.currentTimeMillis() % 10000) == 0) {
@@ -397,6 +412,7 @@ public abstract class NettyRemotingAbstract {
 
         for (ResponseFuture rf : rfList) {
             try {
+                // 执行 response 的回调结果
                 executeInvokeCallback(rf);
             } catch (Throwable e) {
                 log.warn("scanResponseTable, operationComplete Exception", e);
@@ -425,11 +441,13 @@ public abstract class NettyRemotingAbstract {
 
                     responseTable.remove(opaque);
                     responseFuture.setCause(f.cause());
+                    // 这里 countDownLatch - 1
                     responseFuture.putResponse(null);
                     log.warn("send a request command to channel <" + addr + "> failed.");
                 }
             });
 
+            // 通过 countDownLatch 来阻塞住线程 达到sync的效果
             RemotingCommand responseCommand = responseFuture.waitResponse(timeoutMillis);
             if (null == responseCommand) {
                 if (responseFuture.isSendRequestOK()) {

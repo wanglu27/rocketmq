@@ -113,6 +113,7 @@ public class RouteInfoManager {
             try {
                 this.lock.writeLock().lockInterruptibly();
 
+                // 集群信息
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
                 if (null == brokerNames) {
                     brokerNames = new HashSet<String>();
@@ -122,6 +123,9 @@ public class RouteInfoManager {
 
                 boolean registerFirst = false;
 
+                // broker 信息
+                // brokerName -> broker节点信息(brokerData)
+                //
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null == brokerData) {
                     registerFirst = true;
@@ -150,12 +154,15 @@ public class RouteInfoManager {
                             topicConfigWrapper.getTopicConfigTable();
                         if (tcTable != null) {
                             for (Map.Entry<String, TopicConfig> entry : tcTable.entrySet()) {
+                                // topic 对应的 queue 的信息
                                 this.createAndUpdateQueueData(brokerName, entry.getValue());
                             }
                         }
                     }
                 }
 
+                // 这里就是心跳注册
+                // 如果第一次就是新增节点
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr,
                     new BrokerLiveInfo(
                         System.currentTimeMillis(),
@@ -296,6 +303,7 @@ public class RouteInfoManager {
         try {
             try {
                 this.lock.writeLock().lockInterruptibly();
+                // 移除心跳
                 BrokerLiveInfo brokerLiveInfo = this.brokerLiveTable.remove(brokerAddr);
                 log.info("unregisterBroker, remove from brokerLiveTable {}, {}",
                     brokerLiveInfo != null ? "OK" : "Failed",
@@ -305,14 +313,18 @@ public class RouteInfoManager {
                 this.filterServerTable.remove(brokerAddr);
 
                 boolean removeBrokerName = false;
+                // 移除broker相关信息
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null != brokerData) {
+                    // 先移除 brokerData 中 该节点的信息
                     String addr = brokerData.getBrokerAddrs().remove(brokerId);
                     log.info("unregisterBroker, remove addr from brokerAddrTable {}, {}",
                         addr != null ? "OK" : "Failed",
                         brokerAddr
                     );
 
+                    // 如果移除完 就没节点了
+                    // 那么移除整个topic信息
                     if (brokerData.getBrokerAddrs().isEmpty()) {
                         this.brokerAddrTable.remove(brokerName);
                         log.info("unregisterBroker, remove name from brokerAddrTable OK, {}",
@@ -323,6 +335,8 @@ public class RouteInfoManager {
                     }
                 }
 
+                // 如果整个broker信息都被移除了
+                // 那么才会进来
                 if (removeBrokerName) {
                     Set<String> nameSet = this.clusterAddrTable.get(clusterName);
                     if (nameSet != null) {
@@ -338,6 +352,8 @@ public class RouteInfoManager {
                             );
                         }
                     }
+                    // 如果broker集群都没了
+                    // 那么就需要对topic信息进行修改了
                     this.removeTopicByBrokerName(brokerName);
                 }
             } finally {
@@ -441,6 +457,9 @@ public class RouteInfoManager {
                 // 移除
                 it.remove();
                 log.warn("The broker channel expired, {} {}ms", next.getKey(), BROKER_CHANNEL_EXPIRED_TIME);
+                // 如果一个broker节点故障了
+                // 那么关闭channel和从brokerLiveTable中移掉是不行的
+                // 还需要从namesrv整个管理的元数据中都移除掉
                 this.onChannelDestroy(next.getKey(), next.getValue().getChannel());
             }
         }
