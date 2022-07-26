@@ -36,6 +36,9 @@ public class ClientConfig {
     public static final String SEND_MESSAGE_WITH_VIP_CHANNEL_PROPERTY = "com.rocketmq.sendMessageWithVIPChannel";
     private String namesrvAddr = NameServerAddressUtils.getNameServerAddresses();
     private String clientIP = RemotingUtil.getLocalAddress();
+    /**
+     * 示例名称 默认default
+     */
     private String instanceName = System.getProperty("rocketmq.client.name", "DEFAULT");
     private int clientCallbackExecutorThreads = Runtime.getRuntime().availableProcessors();
     protected String namespace;
@@ -43,14 +46,20 @@ public class ClientConfig {
 
     /**
      * Pulling topic information interval from the named server
+     *
+     * 获取路由信息的间隔时间 30s
      */
     private int pollNameServerInterval = 1000 * 30;
     /**
      * Heartbeat interval in microseconds with message broker
+     *
+     * client与broker心跳间隔时间 30s
      */
     private int heartbeatBrokerInterval = 1000 * 30;
     /**
      * Offset persistent interval for consumer
+     *
+     * 持久化consumer的消费进度的间隔时间 5s
      */
     private int persistConsumerOffsetInterval = 1000 * 5;
     private long pullTimeDelayMillsWhenException = 1000;

@@ -174,6 +174,10 @@ public class MQClientAPIImpl {
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
     }
 
+    /**
+     * remotingClient 网络通信对象
+     * 基于netty实现的 bootstrap
+     */
     private final RemotingClient remotingClient;
     private final TopAddressing topAddressing;
     private final ClientRemotingProcessor clientRemotingProcessor;

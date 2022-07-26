@@ -97,21 +97,53 @@ import org.apache.rocketmq.remoting.exception.RemotingTooMuchRequestException;
 public class DefaultMQProducerImpl implements MQProducerInner {
     private final InternalLogger log = ClientLogger.getLog();
     private final Random random = new Random();
+    /**
+     * 这里传进来了门面类
+     * 这个类说过他还负责管理配置
+     * 所以这里就是拿他当配置类来使用
+     */
     private final DefaultMQProducer defaultMQProducer;
+    /**
+     * 封装了一些主题发布信息
+     * </br>
+     * topicPublicInfo {
+     *     List(MessageQueue) messageQueueList,
+     *     TopicRouteData topicRouteData
+     * }
+     */
     private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable =
         new ConcurrentHashMap<String, TopicPublishInfo>();
     private final ArrayList<SendMessageHook> sendMessageHookList = new ArrayList<SendMessageHook>();
     private final RPCHook rpcHook;
     private final BlockingQueue<Runnable> asyncSenderThreadPoolQueue;
+    /**
+     * 异步发送消息的线程池
+     * 线程池队列使用的上边那个 asyncSenderThreadPoolQueue
+     */
     private final ExecutorService defaultAsyncSenderExecutor;
+
+    /**
+     * 执行定时任务 scanExpiredRequest
+     * 检查过期请求
+     * 这个请求请求是怎么回事呢
+     * 生产者发送消息到broker 需要等待broker持久化消息 如果一定时间内没等到 那么这个请求就过期了
+     */
     private final Timer timer = new Timer("RequestHouseKeepingService", true);
     protected BlockingQueue<Runnable> checkRequestQueue;
     protected ExecutorService checkExecutor;
     private ServiceState serviceState = ServiceState.CREATE_JUST;
+    /**
+     * 关键的类 客户端实例对象
+     * 调用mqClientFactory来通过 bootstrap 完成发送消息
+     */
     private MQClientInstance mQClientFactory;
     private ArrayList<CheckForbiddenHook> checkForbiddenHookList = new ArrayList<CheckForbiddenHook>();
     private int zipCompressLevel = Integer.parseInt(System.getProperty(MixAll.MESSAGE_COMPRESS_LEVEL, "5"));
     private MQFaultStrategy mqFaultStrategy = new MQFaultStrategy();
+
+    /**
+     * 异步发送线程池
+     */
     private ExecutorService asyncSenderExecutor;
 
     public DefaultMQProducerImpl(final DefaultMQProducer defaultMQProducer) {
@@ -120,9 +152,11 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
     public DefaultMQProducerImpl(final DefaultMQProducer defaultMQProducer, RPCHook rpcHook) {
         this.defaultMQProducer = defaultMQProducer;
+        // null
         this.rpcHook = rpcHook;
 
         this.asyncSenderThreadPoolQueue = new LinkedBlockingQueue<Runnable>(50000);
+        // 看名字 默认的异步发送消息线程池
         this.defaultAsyncSenderExecutor = new ThreadPoolExecutor(
             Runtime.getRuntime().availableProcessors(),
             Runtime.getRuntime().availableProcessors(),
@@ -180,14 +214,20 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             case CREATE_JUST:
                 this.serviceState = ServiceState.START_FAILED;
 
+                // 检查生产者组
+                // 必须设置 如果不设置就是 default_group 但是如果是这个group的话 会报错
                 this.checkConfig();
 
                 if (!this.defaultMQProducer.getProducerGroup().equals(MixAll.CLIENT_INNER_PRODUCER_GROUP)) {
                     this.defaultMQProducer.changeInstanceNameToPID();
                 }
 
+                // defaultMQProducer有一个clientId  IP@port
+                // clientId 对应 一个 mqClinetFactory
                 this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQProducer, rpcHook);
 
+                // defaultMQProducerImpl 实际发送消息的类
+                // 注册进 mQClientFactory
                 boolean registerOK = mQClientFactory.registerProducer(this.defaultMQProducer.getProducerGroup(), this);
                 if (!registerOK) {
                     this.serviceState = ServiceState.CREATE_JUST;
@@ -199,6 +239,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 this.topicPublishInfoTable.put(this.defaultMQProducer.getCreateTopicKey(), new TopicPublishInfo());
 
                 if (startFactory) {
+                    // 启动一堆定时任务
                     mQClientFactory.start();
                 }
 

@@ -31,6 +31,9 @@ public class Producer {
         /*
          * Instantiate with a producer group name.
          */
+        // DefaultMQProducer 门面模式
+        // 可以理解为是一个 config
+        // 实际发送消息的是 DefaultMQProducerImpl
         DefaultMQProducer producer = new DefaultMQProducer("please_rename_unique_group_name");
 
         /*

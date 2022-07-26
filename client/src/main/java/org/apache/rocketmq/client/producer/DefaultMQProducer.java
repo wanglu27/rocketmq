@@ -55,10 +55,17 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
  * <p> <strong>Thread Safety:</strong> After configuring and starting process, this class can be regarded as thread-safe
  * and used among multiple threads context. </p>
  */
+
+/**
+ * 门面类 业务层使用它来发送消息 但是实际上发送消息是由 defaultMQProducerImple 来实现的
+ * 另一个因为继承了 ClientConfig 来管理 producer 的相关配置
+ */
 public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Wrapping internal implementations for virtually all methods presented in this class.
+     *
+     * 实际发送消息的类
      */
     protected final transient DefaultMQProducerImpl defaultMQProducerImpl;
     private final InternalLogger log = ClientLogger.getLog();
@@ -70,20 +77,33 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      *
      * See {@linktourl http://rocketmq.apache.org/docs/core-concept/} for more discussion.
      */
+    /**
+     * 在事务消息中有用
+     * 事务消息进行回查的时候 可以选择这个生产者组中任意一个生产者来进行事务回查
+     */
     private String producerGroup;
 
     /**
      * Just for testing or demo program
+     */
+    /**
+     * 如果topic不存在 会按照TBW102当成模板来创建topic
      */
     private String createTopicKey = TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC;
 
     /**
      * Number of queues to create per default topic.
      */
+    /**
+     * 创建topic时 默认4个consumerQueue
+     */
     private volatile int defaultTopicQueueNums = 4;
 
     /**
      * Timeout for sending messages.
+     */
+    /**
+     * 默认发送消息 3s 超时
      */
     private int sendMsgTimeout = 3000;
 
@@ -108,6 +128,10 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Indicate whether to retry another broker on sending failure internally.
+     */
+    /**
+     * 故障规避
+     * 也就是我们说的 如果一个broker发送失败的话 是否规避掉这个broker 发送给另一个broker
      */
     private boolean retryAnotherBrokerWhenNotStoreOK = false;
 
@@ -268,7 +292,11 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      */
     @Override
     public void start() throws MQClientException {
+        // 重置生产者组名
+        // 其实就是如果设置了命名空间
+        // 生产组名就需要加上命名空间
         this.setProducerGroup(withNamespace(this.producerGroup));
+        // 启动实际发送消息的对象
         this.defaultMQProducerImpl.start();
         if (null != traceDispatcher) {
             try {
