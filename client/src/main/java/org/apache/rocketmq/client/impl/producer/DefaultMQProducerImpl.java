@@ -126,7 +126,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
      * 执行定时任务 scanExpiredRequest
      * 检查过期请求
      * 这个请求请求是怎么回事呢
-     * 生产者发送消息到broker 需要等待broker持久化消息 如果一定时间内没等到 那么这个请求就过期了
+     * 生产者发送一种需要回执消息消息到broker consumer消费会返回一个回执消息给到生产者
      */
     private final Timer timer = new Timer("RequestHouseKeepingService", true);
     protected BlockingQueue<Runnable> checkRequestQueue;
@@ -158,11 +158,11 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.asyncSenderThreadPoolQueue = new LinkedBlockingQueue<Runnable>(50000);
         // 看名字 默认的异步发送消息线程池
         this.defaultAsyncSenderExecutor = new ThreadPoolExecutor(
-            Runtime.getRuntime().availableProcessors(),
-            Runtime.getRuntime().availableProcessors(),
-            1000 * 60,
-            TimeUnit.MILLISECONDS,
-            this.asyncSenderThreadPoolQueue,
+            Runtime.getRuntime().availableProcessors(), // 核心线程数
+            Runtime.getRuntime().availableProcessors(), // 最大线程数
+            1000 * 60, // 空闲线程存活时间
+            TimeUnit.MILLISECONDS, // 时间单位
+            this.asyncSenderThreadPoolQueue, // 线程池任务队列
             new ThreadFactory() {
                 private AtomicInteger threadIndex = new AtomicInteger(0);
 
@@ -211,6 +211,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
     public void start(final boolean startFactory) throws MQClientException {
         switch (this.serviceState) {
+            // 默认是 CREATE_JUST
             case CREATE_JUST:
                 this.serviceState = ServiceState.START_FAILED;
 
@@ -218,16 +219,22 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 // 必须设置 如果不设置就是 default_group 但是如果是这个group的话 会报错
                 this.checkConfig();
 
+                // 如果不是 内部生产者 INNER_PRODUCER
+                // 如果一个消息消费失败 那么就需要将消息回退给服务器 那么就需要另一个生产者呢
                 if (!this.defaultMQProducer.getProducerGroup().equals(MixAll.CLIENT_INNER_PRODUCER_GROUP)) {
+                    // 如果是的话 设置实例名称为 PID
                     this.defaultMQProducer.changeInstanceNameToPID();
                 }
 
-                // defaultMQProducer有一个clientId  IP@port
-                // clientId 对应 一个 mqClinetFactory
+                // defaultMQProducer有一个clientId  IP@pid
+                // 不管构造出多少个 mqProducer 都只有一个 clientId
+                // 创建当前进程的 RocketMQ客户端实例对象 MQClientInstance 如果有就直接get
                 this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQProducer, rpcHook);
 
                 // defaultMQProducerImpl 实际发送消息的类
-                // 注册进 mQClientFactory
+                // 将自己注册进 mQClientFactory
+                // MQProducerInner prev = this.producerTable.putIfAbsent(group, producer);
+                // 同一个进程 同一个group 只能注册一个 producer
                 boolean registerOK = mQClientFactory.registerProducer(this.defaultMQProducer.getProducerGroup(), this);
                 if (!registerOK) {
                     this.serviceState = ServiceState.CREATE_JUST;
@@ -236,10 +243,13 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                         null);
                 }
 
+                // 添加一个 主题发布信息
+                // createTopicKey TBW102
                 this.topicPublishInfoTable.put(this.defaultMQProducer.getCreateTopicKey(), new TopicPublishInfo());
 
                 if (startFactory) {
-                    // 启动一堆定时任务
+                    // 启动RocketMQ 客户端实例对象
+                    // 也就是一堆定时任务
                     mQClientFactory.start();
                 }
 
@@ -258,8 +268,16 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 break;
         }
 
+        // 加锁 发送给 mQClientFactory.brokerAddrTable 里维护的broker心跳
+        // 如果是第一个启动的producer 其实客户端实例对象里是没有broker元数据的
         this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
 
+        /*
+               回执消息                    回执消息
+         生产者   ->   broker   ->   消费者   ->   broker   ->   生产者
+         生产者拿到回执消息需要找到对应的 RequestFuture 来处理这个回执消息
+         但是如果等待时间过长，就会设置超时，这时候就需要定时去清理这些超时的 RequestFuture
+         */
         this.timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
