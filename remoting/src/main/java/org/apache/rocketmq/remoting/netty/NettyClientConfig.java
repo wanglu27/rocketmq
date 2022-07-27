@@ -21,20 +21,40 @@ public class NettyClientConfig {
      * Worker thread number
      */
     private int clientWorkerThreads = 4;
+    /**
+     * 回调线程池线程数
+     */
     private int clientCallbackExecutorThreads = Runtime.getRuntime().availableProcessors();
+    /**
+     * 和server一样的信号量
+     */
     private int clientOnewaySemaphoreValue = NettySystemConfig.CLIENT_ONEWAY_SEMAPHORE_VALUE;
     private int clientAsyncSemaphoreValue = NettySystemConfig.CLIENT_ASYNC_SEMAPHORE_VALUE;
     private int connectTimeoutMillis = 3000;
+    /**
+     * 客户端 channel 没有被激活间隔时间
+     */
     private long channelNotActiveInterval = 1000 * 60;
 
     /**
      * IdleStateEvent will be triggered when neither read nor write was performed for
      * the specified period of this time. Specify {@code 0} to disable
      */
+    /**
+     * Channel最大空闲时间
+     */
     private int clientChannelMaxIdleTimeSeconds = 120;
-
+    /**
+     * 发送缓冲区
+     */
     private int clientSocketSndBufSize = NettySystemConfig.socketSndbufSize;
+    /**
+     * 接收缓冲区
+     */
     private int clientSocketRcvBufSize = NettySystemConfig.socketRcvbufSize;
+    /**
+     * 是否开启池化 默认肯定是开启的
+     */
     private boolean clientPooledByteBufAllocatorEnable = false;
     private boolean clientCloseSocketIfTimeout = false;
 

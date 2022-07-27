@@ -177,6 +177,7 @@ public class MQClientAPIImpl {
     /**
      * remotingClient 网络通信对象
      * 基于netty实现的 bootstrap
+     * 通过这个对象提供的invoke系列方法 来和服务端进行通信
      */
     private final RemotingClient remotingClient;
     private final TopAddressing topAddressing;
@@ -189,6 +190,9 @@ public class MQClientAPIImpl {
         RPCHook rpcHook, final ClientConfig clientConfig) {
         this.clientConfig = clientConfig;
         topAddressing = new TopAddressing(MixAll.getWSAddr(), clientConfig.getUnitName());
+        // 创建网络层对象
+        // channelEventListener 传了个 null
+        // 我们可以知道 客户端并不关心 channel event
         this.remotingClient = new NettyRemotingClient(nettyClientConfig, null);
         this.clientRemotingProcessor = clientRemotingProcessor;
 

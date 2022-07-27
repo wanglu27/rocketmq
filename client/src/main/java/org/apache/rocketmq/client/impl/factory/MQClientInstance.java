@@ -107,32 +107,57 @@ public class MQClientInstance {
      */
     private final ConcurrentMap<String/* group */, MQConsumerInner> consumerTable = new ConcurrentHashMap<String, MQConsumerInner>();
     private final ConcurrentMap<String/* group */, MQAdminExtInner> adminExtTable = new ConcurrentHashMap<String, MQAdminExtInner>();
+    /**
+     * netty Client配置类
+     */
     private final NettyClientConfig nettyClientConfig;
     /**
-     * 进行一些网络通信操作
-     * 转换消息为 RemotingCommand 通过 netty 发送出去
+     * 进行一些网络通信操作 几乎包含了所有的服务端API
+     * 将MQ业务层的数据转换为 RemotingCommand 通过 NettyRemotingClient 发送出去
      */
     private final MQClientAPIImpl mQClientAPIImpl;
     private final MQAdminImpl mQAdminImpl;
     /**
      * topic的路由数据
+     * 肯定会有定时任务来更新这个
      */
     private final ConcurrentMap<String/* Topic */, TopicRouteData> topicRouteTable = new ConcurrentHashMap<String, TopicRouteData>();
     private final Lock lockNamesrv = new ReentrantLock();
     private final Lock lockHeartbeat = new ReentrantLock();
+    /**
+     * broker的地址
+     * brokerName 是一个逻辑名称 一个broker集群的名称
+     * brokerId 0的节点就是master
+     */
     private final ConcurrentMap<String/* Broker Name */, HashMap<Long/* brokerId */, String/* address */>> brokerAddrTable =
         new ConcurrentHashMap<String, HashMap<Long, String>>();
     private final ConcurrentMap<String/* Broker Name */, HashMap<String/* address */, Integer>> brokerVersionTable =
         new ConcurrentHashMap<String, HashMap<String, Integer>>();
+    /**
+     * 定时任务调度线程池
+     * 需要注意的是这个线程池是一个单线程的线程池
+     */
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
         @Override
         public Thread newThread(Runnable r) {
             return new Thread(r, "MQClientFactoryScheduledThread");
         }
     });
+    /**
+     * 客户端协议处理器 用于处理I/O事件
+     */
     private final ClientRemotingProcessor clientRemotingProcessor;
+    /**
+     * 拉取消息 pullMessage
+     */
     private final PullMessageService pullMessageService;
+    /**
+     * 负载均衡
+     */
     private final RebalanceService rebalanceService;
+    /**
+     * 内部生产者实例 用于处理消费端回退
+     */
     private final DefaultMQProducer defaultMQProducer;
     private final ConsumerStatsManager consumerStatsManager;
     private final AtomicLong sendHeartbeatTimesTotal = new AtomicLong(0);
@@ -149,7 +174,10 @@ public class MQClientInstance {
         this.nettyClientConfig = new NettyClientConfig();
         this.nettyClientConfig.setClientCallbackExecutorThreads(clientConfig.getClientCallbackExecutorThreads());
         this.nettyClientConfig.setUseTLS(clientConfig.isUseTLS());
+
+        // 创建客户端请求处理器
         this.clientRemotingProcessor = new ClientRemotingProcessor(this);
+        // 创建API实现对象
         this.mQClientAPIImpl = new MQClientAPIImpl(this.nettyClientConfig, this.clientRemotingProcessor, rpcHook, clientConfig);
 
         if (this.clientConfig.getNamesrvAddr() != null) {
@@ -165,6 +193,7 @@ public class MQClientInstance {
 
         this.rebalanceService = new RebalanceService(this);
 
+        // 这里创建一个 Inner Producer 来处理消息回退
         this.defaultMQProducer = new DefaultMQProducer(MixAll.CLIENT_INNER_PRODUCER_GROUP);
         this.defaultMQProducer.resetClientConfig(clientConfig);
 
@@ -252,7 +281,10 @@ public class MQClientInstance {
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
-                    // Start request-response channel
+                    // 启动remoteClient
+                    // 实际上就是启动通过netty的bootStrap启动client
+                    // 这里仅仅是创建好了 client的bootstrap
+                    // 之后还需要调用 bootstrap.connect 来创建channel
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
                     this.startScheduledTask();

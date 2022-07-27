@@ -155,11 +155,12 @@ public abstract class NettyRemotingAbstract {
         if (cmd != null) {
             switch (cmd.getType()) {
                 case REQUEST_COMMAND:
-                    // 对client向自己发送的请求的处理
+                    // 其他的请求自己
                     processRequestCommand(ctx, cmd);
                     break;
                 case RESPONSE_COMMAND:
-                    // 对自己之前向client发送请求，client响应的处理
+                    // 自己发送请求，人家的响应
+                    // 其实就是通过 请求id 找到对应的 ResponseFuture 来进行处理
                     processResponseCommand(ctx, cmd);
                     break;
                 default:
@@ -331,6 +332,7 @@ public abstract class NettyRemotingAbstract {
                     @Override
                     public void run() {
                         try {
+                            // 执行调用 异步发送 方法时 传入的callback方法
                             responseFuture.executeInvokeCallback();
                         } catch (Throwable e) {
                             log.warn("execute callback in executor exception, and callback throw", e);
@@ -340,6 +342,8 @@ public abstract class NettyRemotingAbstract {
                     }
                 });
             } catch (Exception e) {
+                // 如果线程池队列已经满了
+                // 就转异步处理为同步处理 在这个线程执行callback方法
                 runInThisThread = true;
                 log.warn("execute callback in executor exception, maybe executor busy", e);
             }
@@ -429,6 +433,8 @@ public abstract class NettyRemotingAbstract {
             final ResponseFuture responseFuture = new ResponseFuture(channel, opaque, timeoutMillis, null, null);
             this.responseTable.put(opaque, responseFuture);
             final SocketAddress addr = channel.remoteAddress();
+            // 通过channel向对面发送消息
+            // 并设置Listener来监听对面的响应
             channel.writeAndFlush(request).addListener(new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture f) throws Exception {
@@ -442,12 +448,14 @@ public abstract class NettyRemotingAbstract {
                     responseTable.remove(opaque);
                     responseFuture.setCause(f.cause());
                     // 这里 countDownLatch - 1
+                    // 从而让对应的 responseFuture 的线程从阻塞中出来
                     responseFuture.putResponse(null);
                     log.warn("send a request command to channel <" + addr + "> failed.");
                 }
             });
 
             // 通过 countDownLatch 来阻塞住线程 达到sync的效果
+            // 线程就挂起了
             RemotingCommand responseCommand = responseFuture.waitResponse(timeoutMillis);
             if (null == responseCommand) {
                 if (responseFuture.isSendRequestOK()) {
@@ -469,8 +477,10 @@ public abstract class NettyRemotingAbstract {
         throws InterruptedException, RemotingTooMuchRequestException, RemotingTimeoutException, RemotingSendRequestException {
         long beginStartTime = System.currentTimeMillis();
         final int opaque = request.getOpaque();
+        // 获取发送异步请求的信号量
         boolean acquired = this.semaphoreAsync.tryAcquire(timeoutMillis, TimeUnit.MILLISECONDS);
         if (acquired) {
+            // 获取到信号量 说明可以发送异步请求
             final SemaphoreReleaseOnlyOnce once = new SemaphoreReleaseOnlyOnce(this.semaphoreAsync);
             long costTime = System.currentTimeMillis() - beginStartTime;
             if (timeoutMillis < costTime) {
@@ -478,9 +488,14 @@ public abstract class NettyRemotingAbstract {
                 throw new RemotingTimeoutException("invokeAsyncImpl call timeout");
             }
 
+            // 这里就创建 responseFuture
             final ResponseFuture responseFuture = new ResponseFuture(channel, opaque, timeoutMillis - costTime, invokeCallback, once);
+            // 将 responseFuture 添加到 map 里
+            // 之后接收到响应 可以通过 opaque 来找到对应的 responseFuture 然后进行处理
             this.responseTable.put(opaque, responseFuture);
             try {
+                // 通过 channel 写入数据
+                // 写入就完了 不像invokeSync通过countDown来进行阻塞 这里直接就结束了
                 channel.writeAndFlush(request).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture f) throws Exception {
