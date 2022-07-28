@@ -86,9 +86,9 @@ import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 
 /**
  * 整个jvm里只有一份 单例
- *
+ * <p>
  * 生产者或消费者都需要注册的进 mqClientinstance 定义了一些关键的定时任务
- *
+ * <p>
  * 观察者模式实现 如果路有消息发生变化 会推送给生产者或者消费者
  */
 public class MQClientInstance {
@@ -281,7 +281,8 @@ public class MQClientInstance {
                 case CREATE_JUST:
                     this.serviceState = ServiceState.START_FAILED;
                     // If not specified,looking address from name server
-                    // 从这里看到 producer会随机只选择一个nameServer
+                    // 如果没有指定namesrv的话 会去抓取namesrv
+                    // 但是不会不指定 所以基本这里就跳过了
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
@@ -387,7 +388,7 @@ public class MQClientInstance {
         }, 1000 * 10, this.clientConfig.getPersistConsumerOffsetInterval(), TimeUnit.MILLISECONDS);
 
         // 动态调整消费者线程池
-        // 1s一次
+        // 60s一次
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -703,10 +704,17 @@ public class MQClientInstance {
             if (this.lockNamesrv.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 try {
                     TopicRouteData topicRouteData;
+
+                    // 这里获取 模板 TBW102 topic 对应的路由信息
+                    // 这个对应的 topic 是不存在的
+                    // 然后将对应的 topic 按照 TBW102 来设置信息
                     if (isDefault && defaultMQProducer != null) {
+                        // 获取默认的 TBW102 topic 路由信息
                         topicRouteData = this.mQClientAPIImpl.getDefaultTopicRouteInfoFromNameServer(defaultMQProducer.getCreateTopicKey(),
                             1000 * 3);
                         if (topicRouteData != null) {
+                            // 设置 topic 对应的 读写队列
+                            // 默认4
                             for (QueueData data : topicRouteData.getQueueDatas()) {
                                 int queueNums = Math.min(defaultMQProducer.getDefaultTopicQueueNums(), data.getReadQueueNums());
                                 data.setReadQueueNums(queueNums);
@@ -727,6 +735,9 @@ public class MQClientInstance {
 
                         // 没发生变化
                         if (!changed) {
+                            // 这里有疑问 为什么没变化 还需要判断是否更新
+                            // 从 生产者发送消息 里看到 如果没找到 路由信息 会 实例化一个空的路由信息放到 topicRouteTable
+                            // 所以这个方法里在判断 null == prev || !prev.ok()
                             changed = this.isNeedUpdateTopicRouteInfo(topic);
                         } else {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
