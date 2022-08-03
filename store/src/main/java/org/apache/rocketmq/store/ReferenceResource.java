@@ -19,11 +19,30 @@ package org.apache.rocketmq.store;
 import java.util.concurrent.atomic.AtomicLong;
 
 public abstract class ReferenceResource {
+    /**
+     * 引用数量
+     * 表示文件在用着
+     * 如果为0 那么就表示这个资源可以被释放掉了
+     */
     protected final AtomicLong refCount = new AtomicLong(1);
+    /**
+     * 存活状态
+     */
     protected volatile boolean available = true;
+    /**
+     * 是否已经被清理
+     */
     protected volatile boolean cleanupOver = false;
+    /**
+     * 第一次关闭的时间戳
+     * 因为第一次关闭会有失败的能的
+     */
     private volatile long firstShutdownTimestamp = 0;
 
+    /**
+     * 增加引用计数
+     * @return
+     */
     public synchronized boolean hold() {
         if (this.isAvailable()) {
             if (this.refCount.getAndIncrement() > 0) {
