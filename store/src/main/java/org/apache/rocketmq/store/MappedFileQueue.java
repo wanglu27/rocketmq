@@ -51,7 +51,7 @@ public class MappedFileQueue {
     /**
      * 目录下每个文件的大小
      * commitlog文件默认1g
-     * consumequeue文件默认 600w byte
+     * consumequeue文件默认 写入 30w 个条目 600w byte 大概5m多
      */
     private final int mappedFileSize;
 

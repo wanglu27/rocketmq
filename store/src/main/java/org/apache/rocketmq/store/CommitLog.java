@@ -50,10 +50,16 @@ import org.apache.rocketmq.store.schedule.ScheduleMessageService;
  */
 public class CommitLog {
     // Message's MAGIC CODE daa320a7
+    // 消息的魔数
     public final static int MESSAGE_MAGIC_CODE = -626843481;
     protected static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     // End of file empty MAGIC CODE cbd43194
+    // 文件结尾的魔数
     protected final static int BLANK_MAGIC_CODE = -875286124;
+    /**
+     * /data/commitlog/ 只有一个目录
+     * 所以只需要一个mappedFileQueue 来管理这一个目录就行了
+     */
     protected final MappedFileQueue mappedFileQueue;
     protected final DefaultMessageStore defaultMessageStore;
     private final FlushCommitLogService flushCommitLogService;
