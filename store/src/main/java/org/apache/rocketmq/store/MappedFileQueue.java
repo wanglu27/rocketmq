@@ -176,7 +176,8 @@ public class MappedFileQueue {
 
         if (files != null) {
             // ascending order
-            // 生序排序
+            // 根据文件名称排序
+            // 防止运维误操作 将目录下的文件根据乱七八糟的排序
             Arrays.sort(files);
             for (File file : files) {
                 // 判断一下这个目录下文件的大小对不对

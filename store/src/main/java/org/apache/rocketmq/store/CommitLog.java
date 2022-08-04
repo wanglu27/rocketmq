@@ -636,21 +636,31 @@ public class CommitLog {
         return beginTimeInLock;
     }
 
+    /**
+     * 异步消费消息
+     * @param msg 虽然包装了一层 但是还是消息
+     * @return
+     */
     public CompletableFuture<PutMessageResult> asyncPutMessage(final MessageExtBrokerInner msg) {
         // Set the storage time
+        // 给消息设置存储时间
         msg.setStoreTimestamp(System.currentTimeMillis());
         // Set the message body BODY CRC (consider the most appropriate setting
         // on the client)
+        // 设置 body 的 crc 值
         msg.setBodyCRC(UtilAll.crc32(msg.getBody()));
         // Back to Results
         AppendMessageResult result = null;
-
+        // 获取负责存储消息的service
         StoreStatsService storeStatsService = this.defaultMessageStore.getStoreStatsService();
 
+        // 消息对应的 topic
         String topic = msg.getTopic();
+        // 消息对应的 队列
         int queueId = msg.getQueueId();
 
         final int tranType = MessageSysFlag.getTransactionValue(msg.getSysFlag());
+        //
         if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE
                 || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
             // Delay Delivery
@@ -672,35 +682,57 @@ public class CommitLog {
             }
         }
 
+        // 持有锁的时间
         long elapsedTimeInLock = 0;
+        // 这种commitlog再写入的时候 会调用系统函数 将commitlog放到物理内存
+        // 这样可以增加写的性能
+        // 但是这个文件写满之后 就需要将这个文件释放掉 从而让新文件放进去
         MappedFile unlockMappedFile = null;
+        // 获取最后一个commitlog 也就是追加写的commitlog
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
+        // 获取锁 开始写入
         putMessageLock.lock(); //spin or ReentrantLock ,depending on store config
         try {
+            // 加锁时间
             long beginLockTimestamp = this.defaultMessageStore.getSystemClock().now();
             this.beginTimeInLock = beginLockTimestamp;
 
             // Here settings are stored timestamp, in order to ensure an orderly
             // global
+            // 重置写入时间
             msg.setStoreTimestamp(beginLockTimestamp);
 
+            // 没有conmmitlog
             if (null == mappedFile || mappedFile.isFull()) {
+                // 创建一个文件
+                // getLastMappedFile(startOffset, true)
+                // 这个true就是没有最后一个 就创建一个
                 mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
             }
+            // 创建之后还是没有
+            // 肯定出现问题了
             if (null == mappedFile) {
                 log.error("create mapped file1 error, topic: " + msg.getTopic() + " clientAddr: " + msg.getBornHostString());
                 beginTimeInLock = 0;
                 return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, null));
             }
 
+            /*
+            除了topic刚创建
+            不然都会走到追加写这里
+             */
+
+            // 开始追加写 传入 appendMessageCallback
             result = mappedFile.appendMessage(msg, this.appendMessageCallback);
+
             switch (result.getStatus()) {
-                case PUT_OK:
+                case PUT_OK: // 写入完成 结束
                     break;
-                case END_OF_FILE:
+                case END_OF_FILE: // 写入的文件已经写到头了
                     unlockMappedFile = mappedFile;
                     // Create a new file, re-write the message
+                    // 再重新创建一个新的文件创建一个文件
                     mappedFile = this.mappedFileQueue.getLastMappedFile(0);
                     if (null == mappedFile) {
                         // XXX: warn and notify me
@@ -708,6 +740,7 @@ public class CommitLog {
                         beginTimeInLock = 0;
                         return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, result));
                     }
+                    // 执行写入
                     result = mappedFile.appendMessage(msg, this.appendMessageCallback);
                     break;
                 case MESSAGE_SIZE_EXCEEDED:
@@ -742,8 +775,12 @@ public class CommitLog {
         storeStatsService.getSinglePutMessageTopicTimesTotal(msg.getTopic()).incrementAndGet();
         storeStatsService.getSinglePutMessageTopicSizeTotal(topic).addAndGet(result.getWroteBytes());
 
+        // 通知刷盘
         CompletableFuture<PutMessageStatus> flushResultFuture = submitFlushRequest(result, msg);
+        // ha相关通知
         CompletableFuture<PutMessageStatus> replicaResultFuture = submitReplicaRequest(result, msg);
+        // 给通知刷盘的 future 添加 ha通知的future
+        // 当这俩任务都完成后 返回刷盘结果
         return flushResultFuture.thenCombine(replicaResultFuture, (flushStatus, replicaStatus) -> {
             if (flushStatus != PutMessageStatus.PUT_OK) {
                 putMessageResult.setPutMessageStatus(flushStatus);
@@ -1005,6 +1042,8 @@ public class CommitLog {
         // Asynchronous flush
         else {
             if (!this.defaultMessageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
+                // 唤醒刷盘的service
+                // 之前说的刷盘service的刷盘间隔是通过 countDownLatch 控制的
                 flushCommitLogService.wakeup();
             } else  {
                 commitLogService.wakeup();
@@ -1388,7 +1427,7 @@ public class CommitLog {
                 // 刷盘脏页的阈值
                 // 脏页达到多少就刷盘 默认 4
                 int flushPhysicQueueLeastPages = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushCommitLogLeastPages();
-                // 刷新所有脏页入盘的时间间隔 1s
+                // 刷新所有脏页入盘的时间间隔 10s
                 int flushPhysicQueueThoroughInterval =
                     CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushCommitLogThoroughInterval();
 
