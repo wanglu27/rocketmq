@@ -72,6 +72,9 @@ public class DefaultMessageStore implements MessageStore {
 
     private final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueue>> consumeQueueTable;
 
+    /**
+     * ConsumerQueue落盘
+     */
     private final FlushConsumeQueueService flushConsumeQueueService;
 
     private final CleanCommitLogService cleanCommitLogService;
@@ -93,12 +96,16 @@ public class DefaultMessageStore implements MessageStore {
     private final TransientStorePool transientStorePool;
 
     private final RunningFlags runningFlags = new RunningFlags();
+
     private final SystemClock systemClock = new SystemClock();
 
     private final ScheduledExecutorService scheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreScheduledThread"));
+
     private final BrokerStatsManager brokerStatsManager;
+
     private final MessageArrivingListener messageArrivingListener;
+
     private final BrokerConfig brokerConfig;
 
     private volatile boolean shutdown = true;
