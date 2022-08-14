@@ -70,10 +70,14 @@ public class DefaultMessageStore implements MessageStore {
     // CommitLog
     private final CommitLog commitLog;
 
+    /**
+     * ConsumerQueue的目录
+     */
     private final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueue>> consumeQueueTable;
 
     /**
-     * ConsumerQueue落盘
+     * ConsumerQueue落盘服务
+     * 启动一个线程不断的刷新consumeQueueTable里维护的ConsumeQueue
      */
     private final FlushConsumeQueueService flushConsumeQueueService;
 
@@ -83,12 +87,24 @@ public class DefaultMessageStore implements MessageStore {
 
     private final IndexService indexService;
 
+    /**
+     * 分配映射文件的服务
+     * 维护了一个requestTable和一个requestQueue
+     * 启动一个线程不断消费requestQueue里的AllocateRequest 来创建MappedFile
+     */
     private final AllocateMappedFileService allocateMappedFileService;
 
+    /**
+     * 分发消息的服务
+     * CommitLog消息添加后 会异步分发给ConsumeQueue和IndexFile来进行对应的消息添加
+     */
     private final ReputMessageService reputMessageService;
 
     private final HAService haService;
 
+    /**
+     * 延迟消息的服务
+     */
     private final ScheduleMessageService scheduleMessageService;
 
     private final StoreStatsService storeStatsService;
@@ -99,6 +115,9 @@ public class DefaultMessageStore implements MessageStore {
 
     private final SystemClock systemClock = new SystemClock();
 
+    /**
+     * 根据线程名称来看 刷盘定时任务
+     */
     private final ScheduledExecutorService scheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreScheduledThread"));
 
@@ -189,10 +208,12 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = true;
 
         try {
+            // 来判断之前是否正常退出
             boolean lastExitOK = !this.isTempFileExist();
             log.info("last shutdown {}", lastExitOK ? "normally" : "abnormally");
 
             if (null != scheduleMessageService) {
+                // 延迟消息相关的调度任务
                 result = result && this.scheduleMessageService.load();
             }
 
@@ -203,11 +224,19 @@ public class DefaultMessageStore implements MessageStore {
             result = result && this.loadConsumeQueue();
 
             if (result) {
+                // 获取检查点
                 this.storeCheckpoint =
                     new StoreCheckpoint(StorePathConfigHelper.getStoreCheckpoint(this.messageStoreConfig.getStorePathRootDir()));
 
+                // 加载 indexFile
                 this.indexService.load(lastExitOK);
 
+                /*
+                恢复commitlog和consumequeue
+                先恢复consumequeue
+                然后恢复commitlog
+                如果有问题 就清除掉cosumequeue的垃圾数据
+                 */
                 this.recover(lastExitOK);
 
                 log.info("load over, and the max phy offset = {}", this.getMaxPhyOffset());
@@ -229,6 +258,7 @@ public class DefaultMessageStore implements MessageStore {
      */
     public void start() throws Exception {
 
+        // 通过文件锁来控制不会有多个broker进程同时启动
         lock = lockFile.getChannel().tryLock(0, 1, false);
         if (lock == null || lock.isShared() || !lock.isValid()) {
             throw new RuntimeException("Lock failed,MQ already started");
@@ -268,6 +298,8 @@ public class DefaultMessageStore implements MessageStore {
             }
             log.info("[SetReputOffset] maxPhysicalPosInLogicQueue={} clMinOffset={} clMaxOffset={} clConfirmedOffset={}",
                 maxPhysicalPosInLogicQueue, this.commitLog.getMinOffset(), this.commitLog.getMaxOffset(), this.commitLog.getConfirmOffset());
+
+            // 设置消息分发偏移量 并 启动服务
             this.reputMessageService.setReputFromOffset(maxPhysicalPosInLogicQueue);
             this.reputMessageService.start();
 
@@ -275,6 +307,7 @@ public class DefaultMessageStore implements MessageStore {
              *  1. Finish dispatching the messages fall behind, then to start other services.
              *  2. DLedger committedPos may be missing, so here just require dispatchBehindBytes <= 0
              */
+            // 需要将commitlog还没有分发的继续分发掉
             while (true) {
                 if (dispatchBehindBytes() <= 0) {
                     break;
@@ -290,11 +323,16 @@ public class DefaultMessageStore implements MessageStore {
             this.handleScheduleMessageService(messageStoreConfig.getBrokerRole());
         }
 
+        // 启动consumequeue的刷盘服务
         this.flushConsumeQueueService.start();
+        // 启动commitlog的刷盘服务
+        // 其实就是启动flushCommitLogService
         this.commitLog.start();
         this.storeStatsService.start();
 
         this.createTempFile();
+
+        // 添加调度任务
         this.addScheduleTask();
         this.shutdown = false;
     }
@@ -423,17 +461,19 @@ public class DefaultMessageStore implements MessageStore {
 
     @Override
     public CompletableFuture<PutMessageResult> asyncPutMessage(MessageExtBrokerInner msg) {
+        // 检查状态
         PutMessageStatus checkStoreStatus = this.checkStoreStatus();
         if (checkStoreStatus != PutMessageStatus.PUT_OK) {
             return CompletableFuture.completedFuture(new PutMessageResult(checkStoreStatus, null));
         }
-
+        // 检查消息
         PutMessageStatus msgCheckStatus = this.checkMessage(msg);
         if (msgCheckStatus == PutMessageStatus.MESSAGE_ILLEGAL) {
             return CompletableFuture.completedFuture(new PutMessageResult(msgCheckStatus, null));
         }
 
         long beginTime = this.getSystemClock().now();
+        // 异步插入消息 commitlog
         CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);
 
         putResultFuture.thenAccept((result) -> {
@@ -1309,6 +1349,7 @@ public class DefaultMessageStore implements MessageStore {
 
     private void addScheduleTask() {
 
+        // 定时清理commitlog和consumerqueue的过期文件
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -1383,15 +1424,26 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private boolean loadConsumeQueue() {
+        /*
+        consumeQueue的目录结构
+        ~/store/consumer/topic/0
+         */
+
+        // consumeQueue对应的目录
         File dirLogic = new File(StorePathConfigHelper.getStorePathConsumeQueue(this.messageStoreConfig.getStorePathRootDir()));
+
+        // 这里获取到的是 topic集合
         File[] fileTopicList = dirLogic.listFiles();
         if (fileTopicList != null) {
 
             for (File fileTopic : fileTopicList) {
                 String topic = fileTopic.getName();
-
+                // 获取到consumerQueue对应的目录
+                // 0 1 2 3
                 File[] fileQueueIdList = fileTopic.listFiles();
+
                 if (fileQueueIdList != null) {
+                    // 获取 0 1 2 3目录下对应的文件
                     for (File fileQueueId : fileQueueIdList) {
                         int queueId;
                         try {
@@ -1405,6 +1457,7 @@ public class DefaultMessageStore implements MessageStore {
                             StorePathConfigHelper.getStorePathConsumeQueue(this.messageStoreConfig.getStorePathRootDir()),
                             this.getMessageStoreConfig().getMappedFileSizeConsumeQueue(),
                             this);
+                        // 加入到 ConsumeQueueTable中
                         this.putConsumeQueue(topic, queueId, logic);
                         if (!logic.load()) {
                             return false;
@@ -1863,10 +1916,15 @@ public class DefaultMessageStore implements MessageStore {
         public void run() {
             DefaultMessageStore.log.info(this.getServiceName() + " service started");
 
+            // 循环落盘Consumerqueue
             while (!this.isStopped()) {
                 try {
+                    // 刷盘间隔
                     int interval = DefaultMessageStore.this.getMessageStoreConfig().getFlushIntervalConsumeQueue();
                     this.waitForRunning(interval);
+                    // 进行刷盘操作
+                    // 重试1次
+                    // 就是获取ConsumerQueue的目录 然后遍历调用flush()方法刷盘
                     this.doFlush(1);
                 } catch (Exception e) {
                     DefaultMessageStore.log.warn(this.getServiceName() + " service has exception. ", e);
@@ -1927,6 +1985,7 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         private void doReput() {
+            // 检查 reputFromOffset 来判断是否需要reput
             if (this.reputFromOffset < DefaultMessageStore.this.commitLog.getMinOffset()) {
                 log.warn("The reputFromOffset={} is smaller than minPyOffset={}, this usually indicate that the dispatch behind too much and the commitlog has expired.",
                     this.reputFromOffset, DefaultMessageStore.this.commitLog.getMinOffset());
@@ -1938,7 +1997,7 @@ public class DefaultMessageStore implements MessageStore {
                     && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
                     break;
                 }
-
+                // 获取没有同步到MessageQueue和IndexFile的数据
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {
@@ -2007,7 +2066,13 @@ public class DefaultMessageStore implements MessageStore {
 
             while (!this.isStopped()) {
                 try {
+                    // 1ms分发一次
                     Thread.sleep(1);
+
+                    // 进行分发
+                    // 本身内部维护了一个分发的偏移量 这个偏移量是对应的commitlog的
+                    // 不断循环根据这个偏移量 从 commitlog中获取后边的数据
+                    // 写入cosumequeue和fileindex中
                     this.doReput();
                 } catch (Exception e) {
                     DefaultMessageStore.log.warn(this.getServiceName() + " service has exception. ", e);
