@@ -89,6 +89,8 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * </p>
      *
      * This field defaults to clustering.
+     *
+     * 消费模式 订阅 广播
      */
     private MessageModel messageModel = MessageModel.CLUSTERING;
 
@@ -135,16 +137,23 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Queue allocation algorithm specifying how message queues are allocated to each consumer clients.
+     *
+     * 主题下的队列分配策略实现
      */
     private AllocateMessageQueueStrategy allocateMessageQueueStrategy;
 
     /**
      * Subscription relationship
+     *
+     * topic - 过滤表达式(Tag)
      */
     private Map<String /* topic */, String /* sub expression */> subscription = new HashMap<String, String>();
 
     /**
      * Message listener
+     *
+     * 消息监听器 业务处理逻辑
+     * 两种实现  Concurrently 并发消费（多个线程消费一个ConsumeQueue） Orderly 顺序消费（一个线程消费一个ConsumeQueue）
      */
     private MessageListener messageListener;
 
@@ -217,6 +226,8 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Batch consumption size
+     *
+     * ConsumerListener里的消费方法中的List<Message>的数量
      */
     private int consumeMessageBatchMaxSize = 1;
 
@@ -241,6 +252,8 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      *
      * If messages are re-consumed more than {@link #maxReconsumeTimes} before success, it's be directed to a deletion
      * queue waiting.
+     *
+     * 最大消费次数 默认16次 注意如果没重试消费完 不会继续往下消费
      */
     private int maxReconsumeTimes = -1;
 
