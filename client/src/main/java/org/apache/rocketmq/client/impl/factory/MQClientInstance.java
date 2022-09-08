@@ -87,7 +87,7 @@ import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 /**
  * 整个jvm里只有一份 单例
  * <p>
- * 生产者或消费者都需要注册的进 mqClientinstance 定义了一些关键的定时任务
+ * 生产者或消费者都需要注册的进 mqClientInstance 定义了一些关键的定时任务
  * <p>
  * 观察者模式实现 如果路有消息发生变化 会推送给生产者或者消费者
  */
