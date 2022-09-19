@@ -83,8 +83,14 @@ public class RebalancePushImpl extends RebalanceImpl {
 
     @Override
     public boolean removeUnnecessaryMessageQueue(MessageQueue mq, ProcessQueue pq) {
+
+        // 因为消费者不在处理这个MessageQueue
+        // 所以关闭前继续offset持久化
+        // 默认发送给broker
         this.defaultMQPushConsumerImpl.getOffsetStore().persist(mq);
+
         this.defaultMQPushConsumerImpl.getOffsetStore().removeOffset(mq);
+
         if (this.defaultMQPushConsumerImpl.isConsumeOrderly()
             && MessageModel.CLUSTERING.equals(this.defaultMQPushConsumerImpl.messageModel())) {
             try {
@@ -141,13 +147,18 @@ public class RebalancePushImpl extends RebalanceImpl {
     public long computePullFromWhere(MessageQueue mq) {
         long result = -1;
         final ConsumeFromWhere consumeFromWhere = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getConsumeFromWhere();
+
         final OffsetStore offsetStore = this.defaultMQPushConsumerImpl.getOffsetStore();
+
         switch (consumeFromWhere) {
             case CONSUME_FROM_LAST_OFFSET_AND_FROM_MIN_WHEN_BOOT_FIRST:
             case CONSUME_FROM_MIN_OFFSET:
             case CONSUME_FROM_MAX_OFFSET:
+                // 最新位置
             case CONSUME_FROM_LAST_OFFSET: {
+                // 从broker拉取最新的offset下来
                 long lastOffset = offsetStore.readOffset(mq, ReadOffsetType.READ_FROM_STORE);
+
                 if (lastOffset >= 0) {
                     result = lastOffset;
                 }

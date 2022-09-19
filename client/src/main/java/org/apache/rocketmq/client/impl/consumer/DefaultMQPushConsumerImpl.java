@@ -1085,6 +1085,8 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
     @Override
     public void doRebalance() {
+        // 检查是否暂停消费状态
+        // 客户端实例(MqClientInstance)里启动 20s一次
         if (!this.pause) {
             this.rebalanceImpl.doRebalance(this.isConsumeOrderly());
         }
