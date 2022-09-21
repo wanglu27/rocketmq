@@ -1152,11 +1152,13 @@ public class MQClientInstance {
         final long brokerId,
         final boolean onlyThisBroker
     ) {
+
         String brokerAddr = null;
         boolean slave = false;
         boolean found = false;
 
         HashMap<Long/* brokerId */, String/* address */> map = this.brokerAddrTable.get(brokerName);
+
         if (map != null && !map.isEmpty()) {
             brokerAddr = map.get(brokerId);
             slave = brokerId != MixAll.MASTER_ID;

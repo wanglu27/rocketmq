@@ -204,15 +204,24 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
         final ProcessQueue processQueue,
         final MessageQueue messageQueue,
         final boolean dispatchToConsume) {
+
+        // 获取消费者每次处理消息的数量
+        // 就是实现方法里的List<MessageExt>有几条
         final int consumeBatchSize = this.defaultMQPushConsumer.getConsumeMessageBatchMaxSize();
+        // 小于一次处理的数量
+        // 直接扔到线程池里处理
         if (msgs.size() <= consumeBatchSize) {
             ConsumeRequest consumeRequest = new ConsumeRequest(msgs, processQueue, messageQueue);
             try {
                 this.consumeExecutor.submit(consumeRequest);
             } catch (RejectedExecutionException e) {
+                // 被拒绝了就等会再仍回去
+                // 5000ms
                 this.submitConsumeRequestLater(consumeRequest);
             }
         } else {
+            // 不然就分割消息列表
+            // 扔到线程池里
             for (int total = 0; total < msgs.size(); ) {
                 List<MessageExt> msgThis = new ArrayList<MessageExt>(consumeBatchSize);
                 for (int i = 0; i < consumeBatchSize; i++, total++) {

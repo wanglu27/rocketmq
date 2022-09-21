@@ -32,7 +32,7 @@ public class PullRequest {
      */
     private ProcessQueue processQueue;
     /**
-     * 拉取消息的下一个偏移量
+     * 拉取消息的偏移量
      */
     private long nextOffset;
     private boolean lockedFirst = false;

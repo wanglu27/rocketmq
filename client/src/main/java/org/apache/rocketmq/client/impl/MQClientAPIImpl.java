@@ -724,6 +724,8 @@ public class MQClientAPIImpl {
         final CommunicationMode communicationMode,
         final PullCallback pullCallback
     ) throws RemotingException, MQBrokerException, InterruptedException {
+
+        // 创建拉取消息对应的命令
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.PULL_MESSAGE, requestHeader);
 
         switch (communicationMode) {
@@ -731,6 +733,7 @@ public class MQClientAPIImpl {
                 assert false;
                 return null;
             case ASYNC:
+                // 默认异步
                 this.pullMessageAsync(addr, request, timeoutMillis, pullCallback);
                 return null;
             case SYNC:
@@ -749,14 +752,23 @@ public class MQClientAPIImpl {
         final long timeoutMillis,
         final PullCallback pullCallback
     ) throws RemotingException, InterruptedException {
+
+        // 通过netty发送出去
+        // rocketmq自己封装的异步
+        // 异步发送的请求会创建一个 responseFuture 对象扔到 remotingClient 的 responseFutureTable 里
+        // 响应回来了会根据id从table中找到对应的responseFuture然后调用回调方法
         this.remotingClient.invokeAsync(addr, request, timeoutMillis, new InvokeCallback() {
             @Override
             public void operationComplete(ResponseFuture responseFuture) {
+                // netty回调
                 RemotingCommand response = responseFuture.getResponseCommand();
                 if (response != null) {
                     try {
+                        // 处理响应数据为pullResult
                         PullResult pullResult = MQClientAPIImpl.this.processPullResponse(response, addr);
                         assert pullResult != null;
+
+                        // 调用回调方法
                         pullCallback.onSuccess(pullResult);
                     } catch (Exception e) {
                         pullCallback.onException(e);
