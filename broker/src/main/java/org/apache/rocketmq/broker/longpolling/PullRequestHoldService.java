@@ -42,6 +42,8 @@ public class PullRequestHoldService extends ServiceThread {
     }
 
     public void suspendPullRequest(final String topic, final int queueId, final PullRequest pullRequest) {
+        // 获取topic内对应的消息队列对应的 ManyPullRequest
+        // key = topic@queueId
         String key = this.buildKey(topic, queueId);
         ManyPullRequest mpr = this.pullRequestTable.get(key);
         if (null == mpr) {
@@ -51,7 +53,9 @@ public class PullRequestHoldService extends ServiceThread {
                 mpr = prev;
             }
         }
-
+        // 将长轮询的pullRequest对象加入到 ManyPullRequest里的pullRequestList集合中
+        // 需要注意的是在集群订阅模式下，一个queue只会被group内一个consume订阅
+        // 那么这个集合中应该只会有一条数据
         mpr.addPullRequest(pullRequest);
     }
 
@@ -68,6 +72,9 @@ public class PullRequestHoldService extends ServiceThread {
         log.info("{} service started", this.getServiceName());
         while (!this.isStopped()) {
             try {
+                // 如果开启允许长轮询
+                // 那么就休眠5s
+                // 否则就休眠1s
                 if (this.brokerController.getBrokerConfig().isLongPollingEnable()) {
                     this.waitForRunning(5 * 1000);
                 } else {
@@ -75,7 +82,10 @@ public class PullRequestHoldService extends ServiceThread {
                 }
 
                 long beginLockTimestamp = this.systemClock.now();
+
+                // 开始消费长轮询的pullRequest
                 this.checkHoldRequest();
+
                 long costTime = this.systemClock.now() - beginLockTimestamp;
                 if (costTime > 5 * 1000) {
                     log.info("[NOTIFYME] check hold request cost {} ms.", costTime);
@@ -94,13 +104,22 @@ public class PullRequestHoldService extends ServiceThread {
     }
 
     private void checkHoldRequest() {
+
+        // 遍历
+        // broker没获取到消息会生成一个pullRequest放到pullRequestTable里
         for (String key : this.pullRequestTable.keySet()) {
+            // 拆分
+            // 获取到topic和queueId
             String[] kArray = key.split(TOPIC_QUEUEID_SEPARATOR);
+
             if (2 == kArray.length) {
                 String topic = kArray[0];
                 int queueId = Integer.parseInt(kArray[1]);
+                // queue最大offset
+                // size / 20
                 final long offset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                 try {
+                    // 通知消息是否到达
                     this.notifyMessageArriving(topic, queueId, offset);
                 } catch (Throwable e) {
                     log.error("check hold request failed. topic={}, queueId={}", topic, queueId, e);
@@ -109,26 +128,48 @@ public class PullRequestHoldService extends ServiceThread {
         }
     }
 
+    /**
+     *
+     * @param topic topic
+     * @param queueId queue
+     * @param maxOffset 最大偏移量
+     */
     public void notifyMessageArriving(final String topic, final int queueId, final long maxOffset) {
         notifyMessageArriving(topic, queueId, maxOffset, null, 0, null, null);
     }
 
     public void notifyMessageArriving(final String topic, final int queueId, final long maxOffset, final Long tagsCode,
         long msgStoreTime, byte[] filterBitMap, Map<String, String> properties) {
+
+        /*
+        两个地方用到了这个方法
+        1. pullRequestHoldService.run()
+        2. 异步从CommitLog添加消息到ConsumeQueue和index文件
+         */
+
+        // 获取到topic里queue对应的ManyPullRequest
         String key = this.buildKey(topic, queueId);
         ManyPullRequest mpr = this.pullRequestTable.get(key);
+
         if (mpr != null) {
+            // 获取pullRequest集合
             List<PullRequest> requestList = mpr.cloneListAndClear();
+
             if (requestList != null) {
                 List<PullRequest> replayList = new ArrayList<PullRequest>();
 
+                // 遍历开始重放获取消息
                 for (PullRequest request : requestList) {
+                    // 检查newestOffset
                     long newestOffset = maxOffset;
                     if (newestOffset <= request.getPullFromThisOffset()) {
+                        // 最大maxOffset
                         newestOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                     }
 
+                    // 表示有新的消息发送到队列了
                     if (newestOffset > request.getPullFromThisOffset()) {
+                        // 过滤操作
                         boolean match = request.getMessageFilter().isMatchedByConsumeQueue(tagsCode,
                             new ConsumeQueueExt.CqExtUnit(tagsCode, msgStoreTime, filterBitMap));
                         // match by bit map, need eval again when properties is not null.
@@ -138,6 +179,9 @@ public class PullRequestHoldService extends ServiceThread {
 
                         if (match) {
                             try {
+                                // 将满足条件的pullReqeust封装出来一个RequestTask扔到线程池里再次执行
+                                // 再次调用PullMessageProcessor.this.processRequest()方法获取消息
+                                // 但是这次调用方法时传入的brokerAllowSuspend = false 所以不会再次触发长轮询
                                 this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
                                     request.getRequestCommand());
                             } catch (Throwable e) {
@@ -157,6 +201,7 @@ public class PullRequestHoldService extends ServiceThread {
                         continue;
                     }
 
+                    // 扔到replay集合里 等待下次重放
                     replayList.add(request);
                 }
 

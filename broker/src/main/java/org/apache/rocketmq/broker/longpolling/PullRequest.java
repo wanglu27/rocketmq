@@ -22,11 +22,20 @@ import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 import org.apache.rocketmq.store.MessageFilter;
 
 public class PullRequest {
+    // 请求时的command对象
     private final RemotingCommand requestCommand;
+    // 客户端与服务端的会话channel
     private final Channel clientChannel;
+    // 长轮询超时时间 默认15s
+    // 可能为1s
     private final long timeoutMillis;
+    // 开始时间
     private final long suspendTimestamp;
+    // 本次pull队列的offset
+    // requestCommand header里的
     private final long pullFromThisOffset;
+    // 订阅数据
+    // tag
     private final SubscriptionData subscriptionData;
     private final MessageFilter messageFilter;
 

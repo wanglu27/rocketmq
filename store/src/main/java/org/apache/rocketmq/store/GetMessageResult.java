@@ -23,18 +23,31 @@ import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
 public class GetMessageResult {
 
+    // 查询消息时 封装了MappedFile
+    // 方便后续获取完消息后进行资源释放
     private final List<SelectMappedBufferResult> messageMapedList =
         new ArrayList<SelectMappedBufferResult>(100);
 
+    // 存储消息的List
+    // 每条消息对应一个ByteBuffer
     private final List<ByteBuffer> messageBufferList = new ArrayList<ByteBuffer>(100);
 
+    // 获取消息的状态
+    // 查询成功、未查询到消息、偏移量越界等状态
     private GetMessageStatus status;
-    private long nextBeginOffset;
-    private long minOffset;
-    private long maxOffset;
 
+    // 下次拉取消息的offset
+    private long nextBeginOffset;
+    // 当前ConsumeQueue最小offset
+    private long minOffset;
+    // 当前ConsumeQueue最大offset
+    private long maxOffset;
+    // 消息总byte大小
     private int bufferTotalSize = 0;
 
+    // 下次从哪个节点拉取消息
+    // 热消息也就是在内存中的消息 master节点
+    // 冷消息也就是在硬盘上的消息 slave节点
     private boolean suggestPullingFromSlave = false;
 
     private int msgCount4Commercial = 0;
