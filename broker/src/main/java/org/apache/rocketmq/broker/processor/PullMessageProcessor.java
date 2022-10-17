@@ -262,7 +262,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
         }
 
 
-        // 查询消息的核心入口
+        // broker获取对应消息的方法
         final GetMessageResult getMessageResult =
                 this.brokerController.getMessageStore().getMessage(
                         requestHeader.getConsumerGroup(), // 消费者组
@@ -272,6 +272,26 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                         requestHeader.getMaxMsgNums(), // 本次获取消息的最大数量
                         messageFilter // 上边获取到的消息过滤器 tagCode
                 );
+
+        /*
+        根据上边获取消息的状态 在下边进行状态的转换
+
+        GetMessageStatus                ResponseCode                    PullStatus
+        ----------------------------------------------------------------------------------
+        FOUND                           SUCCESS                         FOUND(正常处理)
+
+        MESSAGE_WAS_REMOVING            PULL_RETRY_IMMEDIATELY          NO_MATCHED_MSG(调整ConsumerOffset再次发起PullRequest)
+        NO_MATCHED_LOGIC_QUEUE
+        NO_MATCHED_MESSAGE
+
+        OFFSET_OVERFLOW_BADLY           PULL_OFFSET_MOVED               OFFSET_ILLEGAL(删除ProcessQueue待下次重平衡重新消费)
+        OFFSET_TOO_SMALL
+        NO_MESSAGE_IN_QUEUE
+
+        NO_MESSAGE_IN_QUEUE             PULL_NOT_FOUND                  NO_NEW_MSG(调整ConsumerOffset再次发起PullRequest)
+        OFFSET_FOUND_NULL
+        OFFSET_OVERFLOW_ONE
+         */
 
         if (getMessageResult != null) {
             response.setRemark(getMessageResult.getStatus().name());

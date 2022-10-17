@@ -360,8 +360,10 @@ public class MappedFileQueue {
     }
 
     public long getMaxOffset() {
+        // 获取最后一个MappedFile
         MappedFile mappedFile = getLastMappedFile();
         if (mappedFile != null) {
+            // 文件名称(起始偏移量) + 读偏移量
             return mappedFile.getFileFromOffset() + mappedFile.getReadPosition();
         }
         return 0;
