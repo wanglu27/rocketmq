@@ -75,20 +75,32 @@ public class ProcessQueue {
      * @param pushConsumer
      */
     public void cleanExpiredMsg(DefaultMQPushConsumer pushConsumer) {
+        // 顺序消费返回
         if (pushConsumer.getDefaultMQPushConsumerImpl().isConsumeOrderly()) {
             return;
         }
 
+        // 计算该ProcessQueue的消息数量
+        // 最多为16
+        // 也就是最多清除16条消息
         int loop = msgTreeMap.size() < 16 ? msgTreeMap.size() : 16;
+
         for (int i = 0; i < loop; i++) {
             MessageExt msg = null;
             try {
                 this.lockTreeMap.readLock().lockInterruptibly();
                 try {
-                    if (!msgTreeMap.isEmpty() && System.currentTimeMillis() - Long.parseLong(MessageAccessor.getConsumeStartTimeStamp(msgTreeMap.firstEntry().getValue())) > pushConsumer.getConsumeTimeout() * 60 * 1000) {
+                    // 进行一堆判断
+                    // 消息树不为空
+                    if (!msgTreeMap.isEmpty()
+                            // 如果暂存的消息超过了15分钟还没有被消费掉 就取出来
+                            && System.currentTimeMillis() - Long.parseLong(MessageAccessor.getConsumeStartTimeStamp(msgTreeMap.firstEntry().getValue())) > pushConsumer.getConsumeTimeout() * 60 * 1000) {
                         msg = msgTreeMap.firstEntry().getValue();
                     } else {
-
+                        // 不是过期消息
+                        // 每次循环到这里都是该消息树的第一条
+                        // 这一条不是 那么后边的都不是
+                        // 直接结束循环
                         break;
                     }
                 } finally {
@@ -100,11 +112,17 @@ public class ProcessQueue {
 
             try {
 
+                // 发送消息回退
+                // 延迟级别3
+                // 固定时间内
                 pushConsumer.sendMessageBack(msg, 3);
                 log.info("send expire msg back. topic={}, msgId={}, storeHost={}, queueId={}, queueOffset={}", msg.getTopic(), msg.getMsgId(), msg.getStoreHost(), msg.getQueueId(), msg.getQueueOffset());
                 try {
                     this.lockTreeMap.writeLock().lockInterruptibly();
                     try {
+                        // 如果获取到的消息是消息树的第一条消息
+                        // 也就是在进行到现在的时候 这个消息还是没有被消费
+                        // 那么就移除掉他
                         if (!msgTreeMap.isEmpty() && msg.getQueueOffset() == msgTreeMap.firstKey()) {
                             try {
                                 removeMessage(Collections.singletonList(msg));

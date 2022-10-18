@@ -622,6 +622,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         try {
             String brokerAddr = (null != brokerName) ? this.mQClientFactory.findBrokerAddressInPublish(brokerName)
                     : RemotingHelper.parseSocketAddressAddr(msg.getStoreHost());
+
             this.mQClientFactory.getMQClientAPIImpl().consumerSendMessageBack(brokerAddr, msg,
                                                                               this.defaultMQPushConsumer.getConsumerGroup(), delayLevel, 5000, getMaxReconsumeTimes());
         } catch (Exception e) {
@@ -1319,10 +1320,18 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     }
 
     public void resetRetryAndNamespace(final List<MessageExt> msgs, String consumerGroup) {
+        // 获取重试主题
+        // %RETRY%GROUPNAME
         final String groupTopic = MixAll.getRetryTopic(consumerGroup);
+
         for (MessageExt msg : msgs) {
+            // 一般消息没有这个属性 原topic
+            // 只有重试消息才会有
             String retryTopic = msg.getProperty(MessageConst.PROPERTY_RETRY_TOPIC);
+
+            // 说明是重试主题
             if (retryTopic != null && groupTopic.equals(msg.getTopic())) {
+                // 将消息的topic修改会原topic
                 msg.setTopic(retryTopic);
             }
 
