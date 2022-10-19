@@ -58,13 +58,20 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
     @Override
     public void updateOffset(MessageQueue mq, long offset, boolean increaseOnly) {
         if (mq != null) {
+            // 获取MessageQueue对应的offset
             AtomicLong offsetOld = this.offsetTable.get(mq);
             if (null == offsetOld) {
+                // 设置新的Offset返回旧值
                 offsetOld = this.offsetTable.putIfAbsent(mq, new AtomicLong(offset));
             }
 
             if (null != offsetOld) {
                 if (increaseOnly) {
+                    // 新offset比旧offset大才会去更新Atomic
+                    // 因为并发消费的消费任务是多线程并发的
+                    // 按照顺序添加了task1 task2 task3多个消费任务
+                    // 那么消费offset小的task1 如果比后边的任务晚一点消费完
+                    // 那不能让offset往回走
                     MixAll.compareAndIncreaseOnly(offsetOld, offset);
                 } else {
                     offsetOld.set(offset);
